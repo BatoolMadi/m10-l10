@@ -76,7 +76,7 @@ jobs:
       - name: Build Next.js
         run: cd web && npm run build
       - name: Install Playwright Chromium
-        run: cd web && npx playwright install --with-deps chromium
+        run: cd web && npx playwright install chromium
       # Playwright smoke runs against a mocked backend in CI — the specs
       # use `page.route` to stub the api endpoints, then assert that the
       # typed responses render correctly. Full end-to-end against a live

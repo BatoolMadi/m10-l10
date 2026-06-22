@@ -15,7 +15,25 @@ Discipline gates the autograder enforces:
 - `/healthz` does NOT touch Neo4j or Weaviate.
 """
 import os
+from requests import session
+import spacy
+import weaviate
+
+from neo4j import GraphDatabase
+from sentence_transformers import SentenceTransformer
+
+from .settings import Settings
+from .w9b_mapper.errors import UnsupportedQueryError
+
+from .m8_rag.generator import load_generator
+from .settings import Settings
+
 from contextlib import asynccontextmanager
+
+from .nlp import extract_entities
+from .kg import UnsupportedQueryError, wrap_kg_query
+
+from .rag import compose_rag
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +78,31 @@ async def lifespan(app: FastAPI):
     #           `vectorizer=none`.
     # Then `yield` (so request handling can proceed), and on shutdown
     # close the Neo4j driver.
+    
+    settings = Settings()
+
+    neo4j_driver = GraphDatabase.driver(
+        settings.neo4j_uri,
+        auth=(settings.neo4j_user, settings.neo4j_password),
+    )
+
+    weaviate_client = weaviate.Client(settings.weaviate_url)
+
+    nlp = spacy.load("en_core_web_sm")
+
+    generator = load_generator()
+
+    embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+    app.state.neo4j_driver = neo4j_driver
+    app.state.weaviate_client = weaviate_client
+    app.state.nlp = nlp
+    app.state.generator = generator
+    app.state.embedder = embedder
+
     yield
+
+    neo4j_driver.close()
 
 
 app = FastAPI(title="M10 Recipe Service", lifespan=lifespan)
@@ -70,9 +112,36 @@ app = FastAPI(title="M10 Recipe Service", lifespan=lifespan)
 #       env var (with a sensible localhost default for `npm run dev`).
 #       See the Reading's CORS section for the middleware arguments.
 
+settings = Settings()
 
-@app.post("/extract")
-def extract(req, nlp=Depends(get_nlp)):
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.web_origin],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+SUPPORTED_PATTERNS = [
+    "find recipes that use {ingredient}",
+    "find recipes by difficulty {level}",
+    "find recipes by {chef}",
+    "find recipes with cooking time under {minutes} minutes",
+    "find vegetarian recipes",
+    "find vegan recipes",
+    "find gluten-free recipes",
+    "find recipes that pair with {ingredient}",
+    "find recipes from {region}",
+    "find recipes that contain {ingredient_a} and {ingredient_b}",
+    "find substitutes for {ingredient}",
+    "find recipes for {meal_type}",
+    "find recipes ranked by rating",
+    "find recipes using {technique}",
+    "find {cuisine} recipes",
+]
+
+@app.post("/extract", response_model=ExtractResponse)
+def extract(req: ExtractRequest, nlp=Depends(get_nlp)):
     """Run spaCy NER on the input text; return entities ordered by `start`.
 
     Returns ExtractResponse with entities sorted by `start` ascending.
@@ -80,11 +149,13 @@ def extract(req, nlp=Depends(get_nlp)):
     # TODO: type-annotate the request body, wire response_model on the
     #       decorator, run NER via the helper in nlp.py, and return the
     #       typed response.
-    raise NotImplementedError
+    
+    entities = extract_entities(req.text, nlp)
+    return ExtractResponse(entities=entities)
 
 
-@app.post("/kg/query")
-def kg_query(req, session=Depends(get_session)):
+@app.post("/kg/query", response_model=KGResponse)
+def kg_query(req: KGRequest, session=Depends(get_session)):
     """Run the W9B mapper and execute the resulting Cypher.
 
     Returns KGResponse(cypher=..., rows=[r.data() for r in session.run(...)], count=len(rows)).
@@ -95,11 +166,49 @@ def kg_query(req, session=Depends(get_session)):
     #       execute the cypher in a Neo4j session, materialize the rows,
     #       and return the typed response. Convert UnsupportedQueryError
     #       to a structured 422.
-    raise NotImplementedError
+    
+    print("entered kg_query")
+    print(req)
 
+    try:
+        cypher, params = wrap_kg_query(req.question)
+        print("cypher:", cypher)
+        print("params:", params)
 
-@app.post("/rag/answer")
-def rag_answer(req, weaviate_client=Depends(get_weaviate), generator=Depends(get_generator), embedder=Depends(get_embedder)):
+        if params:
+            result = session.run(cypher, params=params)
+        else:
+            result = session.run(cypher)
+        rows = [record.data() for record in result]
+
+        return KGResponse(
+            cypher=cypher,
+            rows=rows,
+            count=len(rows),
+        )
+
+    except UnsupportedQueryError:
+        detail = UnsupportedQueryDetail(
+            reason="unsupported_question",
+            supported_patterns=SUPPORTED_PATTERNS,
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=detail.model_dump(),
+        )
+
+    except Exception as e:
+        print("ERROR TYPE:", type(e))
+        print("ERROR:", e)
+        raise
+
+@app.post("/rag/answer", response_model=RAGResponse)
+def rag_answer(
+    req: RAGRequest,
+    weaviate_client=Depends(get_weaviate),
+    generator=Depends(get_generator),
+    embedder=Depends(get_embedder),
+):
     """Retrieve → assemble → generate → cite → grounding check.
 
     Returns RAGResponse with citations populated when a grounded answer
@@ -110,15 +219,26 @@ def rag_answer(req, weaviate_client=Depends(get_weaviate), generator=Depends(get
     #       decorator, run the RAG composition via the helper in rag.py
     #       (passing the injected weaviate client and generator), and
     #       return the typed response.
-    raise NotImplementedError
+    
+    result = compose_rag(
+        question=req.question,
+        embedder=embedder,
+        weaviate_client=weaviate_client,
+        generator=generator,
+        k=req.k,
+    )
+
+    return RAGResponse(**result)
 
 
-@app.get("/healthz")
+
+@app.get("/healthz", response_model=HealthResponse)
 def healthz():
     """Liveness probe. Must NOT touch Neo4j or Weaviate."""
     # TODO: wire response_model on the decorator and return the typed
     #       liveness response.
-    raise NotImplementedError
+    
+    return HealthResponse(status="ok")
 
 
 @app.get("/readyz")
@@ -132,4 +252,24 @@ def readyz(session=Depends(get_session), weaviate_client=Depends(get_weaviate)):
     # TODO: probe both backends within the 2-second budget, populate
     #       the readiness detail, and raise an HTTP error with the
     #       readiness detail if either probe fails.
-    raise NotImplementedError
+    
+    detail = {
+        "neo4j": "ok",
+        "weaviate": "ok",
+    }
+
+    try:
+        session.run("RETURN 1 AS ok")
+    except Exception:
+        detail["neo4j"] = "down"
+
+    try:
+        if not weaviate_client.is_ready():
+            detail["weaviate"] = "down"
+    except Exception:
+        detail["weaviate"] = "down"
+
+    if detail["neo4j"] != "ok" or detail["weaviate"] != "ok":
+        raise HTTPException(status_code=503, detail=detail)
+
+    return detail
