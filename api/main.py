@@ -8,7 +8,7 @@ Discipline gates the autograder enforces:
 - `CORSMiddleware` is registered with `allow_origins=[WEB_ORIGIN]`.
 - `/extract`, `/kg/query`, `/rag/answer` use Pydantic shapes from
   `models.py` (no anonymous dicts; use Pydantic v2 idioms (model_dump, not the deprecated v1 serialization shortcut)).
-- `/kg/query` converts `UnsupportedQueryError` to 422 with structured
+- `/` converts `UnsupportedQueryError` to 422 with structured
   detail (`{"reason": "unsupported_question", "supported_patterns": [...]}`).
 - `/readyz` probes Neo4j (`RETURN 1`) AND Weaviate (`client.is_ready()`)
   within 2 seconds; failure → 503.
