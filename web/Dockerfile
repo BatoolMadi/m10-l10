@@ -14,10 +14,10 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY web/package*.json ./
+COPY package*.json ./
 RUN npm install
 
-COPY web/ .
+COPY . .
 RUN npm run build
 
 FROM node:20-alpine AS runner
