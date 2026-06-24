@@ -16,6 +16,6 @@ class Settings:
     def __init__(self) -> None:
         self.neo4j_uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
         self.neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
-        self.neo4j_password = os.environ.get("NEO4J_PASSWORD", "")
+        self.neo4j_password = os.environ.get("NEO4J_PASSWORD", "password")
         self.weaviate_url = os.environ.get("WEAVIATE_URL", "http://localhost:8080")
         self.web_origin = os.environ.get("WEB_ORIGIN", "http://localhost:3000")
