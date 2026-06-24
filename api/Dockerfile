@@ -1,16 +1,7 @@
 # Lab 10 — backend Dockerfile. Author this file.
 #
-# TODO: choose a slim Python base image so the runtime is small.
-# TODO: order layers so dependency install is cached between rebuilds
-#       (install requirements before copying the rest of the source).
-# TODO: install the spaCy English model needed by /extract.
-# TODO: expose the FastAPI port and start uvicorn against `api.main:app`
-#       with the build context set to the repo root (NOT `cd api &&
-#       uvicorn main:app`). The starter uses package-relative imports
-#       (`from .models import Entity`), which require uvicorn to load the
-#       package as `api.*` — running `uvicorn main:app` from inside the
-#       `api/` directory breaks these imports with `ImportError:
-#       attempted relative import with no known parent package`.
+# Build context must be the repo root:
+#   docker build -t m10-api -f api/Dockerfile .
 #
 # See lab-guide.md "Containerization" section for the constraints the
 # autograder will check.
@@ -19,12 +10,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY api/requirements.txt ./requirements.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m spacy download en_core_web_sm
 
-RUN pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
-
-COPY api/ ./api
+COPY . .
 
 EXPOSE 8000
 
