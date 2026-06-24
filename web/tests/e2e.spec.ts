@@ -15,8 +15,6 @@ test("/ landing page lists three demo links", async ({ page }) => {
 test("/extract renders entity spans for a known input", async ({ page }) => {
   // Mock the extract API endpoint
   await page.route("**/api/extract", async (route) => {
-    await route.abort();
-    // Replace with actual mock response that includes entity-span elements
     await route.fulfill({
       status: 200,
       body: JSON.stringify({
