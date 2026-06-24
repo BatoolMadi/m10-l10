@@ -1,7 +1,21 @@
 import { useState } from "react";
+import { apiUrl } from "../lib/api";
 import { RAGResponse } from "../lib/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function normalizeRagResponse(data: Record<string, unknown>): RAGResponse {
+  const citations = Array.isArray(data.citations) ? data.citations : [];
+  return {
+    answer: typeof data.answer === "string" ? data.answer : "",
+    citations: citations.map((citation, idx) => {
+      const record = citation as Record<string, unknown>;
+      return {
+        chunk_id: typeof record.chunk_id === "number" ? record.chunk_id : idx + 1,
+        score: typeof record.score === "number" ? record.score : 0,
+      };
+    }),
+    confidence: typeof data.confidence === "number" ? data.confidence : 0,
+  };
+}
 
 export default function RagPage() {
   const [question, setQuestion] = useState("");
@@ -13,7 +27,7 @@ export default function RagPage() {
     setResult(null);
 
     try {
-      const res = await fetch(`${API_URL}/rag/answer`, {
+      const res = await fetch(apiUrl("/rag/answer"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question, k: 4 }),
@@ -26,7 +40,7 @@ export default function RagPage() {
         return;
       }
 
-      setResult(data);
+      setResult(normalizeRagResponse(data));
     } catch {
       setError("Could not reach the backend.");
     }

@@ -1,7 +1,25 @@
 import { useState } from "react";
+import { apiUrl } from "../lib/api";
 import { KGResponse } from "../lib/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function normalizeKgResponse(data: Record<string, unknown>): KGResponse {
+  if (Array.isArray(data.rows)) {
+    return data as unknown as KGResponse;
+  }
+
+  const results = Array.isArray(data.results) ? data.results : [];
+  return {
+    cypher: typeof data.cypher === "string" ? data.cypher : "",
+    rows: results.map((row) => {
+      const record = row as Record<string, unknown>;
+      return {
+        id: record.id,
+        recipe: record.recipe ?? record.name ?? "",
+      };
+    }),
+    count: typeof data.count === "number" ? data.count : results.length,
+  };
+}
 
 export default function KgPage() {
   const [question, setQuestion] = useState("");
@@ -13,7 +31,7 @@ export default function KgPage() {
     setResult(null);
 
     try {
-      const res = await fetch(`${API_URL}/kg/query`, {
+      const res = await fetch(apiUrl("/kg/query"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
@@ -26,7 +44,7 @@ export default function KgPage() {
         return;
       }
 
-      setResult(data);
+      setResult(normalizeKgResponse(data));
     } catch {
       setError("Could not reach the backend.");
     }

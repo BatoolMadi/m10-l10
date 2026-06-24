@@ -1,7 +1,21 @@
 import { useState } from "react";
+import { apiUrl } from "../lib/api";
 import { ExtractResponse } from "../lib/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+function normalizeExtractResponse(data: Record<string, unknown>): ExtractResponse {
+  const entities = Array.isArray(data.entities) ? data.entities : [];
+  return {
+    entities: entities.map((entity) => {
+      const record = entity as Record<string, unknown>;
+      return {
+        text: String(record.text ?? ""),
+        label: String(record.label ?? record.type ?? ""),
+        start: typeof record.start === "number" ? record.start : 0,
+        end: typeof record.end === "number" ? record.end : 0,
+      };
+    }),
+  };
+}
 
 export default function ExtractPage() {
   const [text, setText] = useState("");
@@ -13,7 +27,7 @@ export default function ExtractPage() {
     setResult(null);
 
     try {
-      const res = await fetch(`${API_URL}/extract`, {
+      const res = await fetch(apiUrl("/extract"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
@@ -26,7 +40,7 @@ export default function ExtractPage() {
         return;
       }
 
-      setResult(data);
+      setResult(normalizeExtractResponse(data));
     } catch {
       setError("Could not reach the backend.");
     }
