@@ -52,7 +52,9 @@ export default function ExtractPage() {
         <ul>
           {result.entities.map((entity, idx) => (
             <li key={idx}>
-              {entity.text} — {entity.label}
+              <span data-testid="entity-span">
+                {entity.text} — {entity.label}
+              </span>
             </li>
           ))}
         </ul>
